@@ -6,9 +6,9 @@ const port = process.env.PORT || 3000;
 app.use(bodyParser.json());
 
 //Basic root endpoint
-app.get('/', (req, res) => {
-  res.send('Server is running!');
-});
+// app.get('/', (req, res) => {
+//   res.send('Server is running!');
+// });
 
 // Verification endpoint
 app.get("/webhook", (req, res) => {
