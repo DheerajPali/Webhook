@@ -1,48 +1,39 @@
 require("dotenv").config();
 const express = require("express");
 const bodyParser = require("body-parser");
+const cors = require("cors");
+
 const app = express();
 const port = process.env.PORT || 3000;
 
 app.use(bodyParser.json());
+app.use(cors());
 
-//Basic root endpoint
-// app.get('/', (req, res) => {
-//   res.send('Server is running!');
-// });
+let messages = [];
 
 // Verification endpoint
 app.get("/webhook", (req, res) => {
-    console.log("inside get");
-  try {
-    const verificationToken = process.env.TOKEN; 
-    // || "EAAWTGSiIZBiQBO8f993oXvNBQfqlV3yRZBTGmobWVEEQc6S6agxrIisJYNqLP7nxsbBq0MowU7x1jF7DXU2fUJl7nFXtZBnwiEeHgv7gNKMcny2uK4IsK3iz4ZBijOBZCmOe3j47FsK6aRBo2OOy2Fw3dlp8E5unF73xVvM5byTQMrReohI2ybsgP6to8YdDkhV5ZBZB1lACmKbVWcagHhITZC6w74gZD";
-    const mode = req.query["hub.mode"];
-    const token = req.query["hub.verification_token"];
-    const challenge = req.query["hub.challenge"];
-    console.log(token);
-    console.log(verificationToken);
-    // console.log(token == verificationToken);
-    console.log(mode);
-    if (mode && token == verificationToken) {
-      console.log("Webhook verified!");
-      res.status(200).send(challenge);
-    } else {
-      res.sendStatus(403);
-    }
-  } catch (error) {
-    console.log("error occured", error);
+  const verificationToken = process.env.TOKEN;
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verification_token"];
+  const challenge = req.query["hub.challenge"];
+
+  if (mode && token === verificationToken) {
+    console.log("Webhook verified!");
+    res.status(200).send(challenge);
+  } else {
+    res.sendStatus(403);
   }
 });
 
-// To receive messages
+// Handle incoming messages
 app.post("/webhook", (req, res) => {
   const body = req.body;
-
   if (body.object) {
     const message = body.entry[0]?.changes[0]?.value?.messages?.[0];
     if (message) {
       console.log("Received Message: ", message);
+      messages.push(message); // Store message
     }
     res.sendStatus(200);
   } else {
@@ -50,7 +41,13 @@ app.post("/webhook", (req, res) => {
   }
 });
 
-// ✅ Single app.listen() here
+// Endpoint for frontend to fetch messages
+app.get("/messages", (req, res) => {
+  console.log("fetched messages endpoint");
+  res.status(200).json(messages);
+});
+
+// Start server
 app.listen(port, () => {
   console.log(`Server is listening on http://localhost:${port}`);
 });
