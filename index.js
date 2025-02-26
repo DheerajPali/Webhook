@@ -1,14 +1,14 @@
-// require("dotenv").config();
+require("dotenv").config();
 const express = require("express");
 const bodyParser = require("body-parser");
-// const cors = require("cors");
+const cors = require("cors");
 const axios = require("axios");
 
 const app = express();
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 8080;
 
 app.use(bodyParser.json());
-// app.use(cors());
+app.use(cors());
 
 let messages = [];
 
@@ -48,27 +48,19 @@ app.get("/messages", (req, res) => {
   res.status(200).json(messages);
 });
 
-// Endpoint to send a message
+
 app.post("/send-message", async (req, res) => {
-  const { text } = req.body;
+  const { text,contact } = req.body;
   console.log("inside send-message")
   try {
     const response = await axios.post(
       "https://graph.facebook.com/v22.0/580509908477893/messages",
       {
         messaging_product: "whatsapp",
-        to : "917489638090",
+        to : contact,
         type: "text",
         text: { body: text }
       },
-      // {
-      //   messaging_product: "whatsapp",
-      //   to: "918976590545",
-      //   type: "text",
-      //   text: {
-      //     body: "Hello , please send a message on this number."
-      //   }
-      // }
       
       {
         headers: {
@@ -80,7 +72,7 @@ app.post("/send-message", async (req, res) => {
 
     const sentMessage = {
       from: "me",
-      to : "917489638090",
+      to : contact,
       timestamp: new Date().toISOString(),
       text: { body: text },
       type: "text",
@@ -95,6 +87,54 @@ app.post("/send-message", async (req, res) => {
     res.status(500).json({ success: false, error: "Failed to send message" });
   }
 });
+
+// Endpoint to send a message
+// app.post("/send-message", async (req, res) => {
+//   const { text } = req.body;
+//   console.log("inside send-message")
+//   try {
+//     const response = await axios.post(
+//       "https://graph.facebook.com/v22.0/580509908477893/messages",
+//       // {
+//       //   messaging_product: "whatsapp",
+//       //   to : "917489638090",
+//       //   type: "text",
+//       //   text: { body: text1 }
+//       // },
+//       {
+//         messaging_product: "whatsapp",
+//         to: "917489638090",
+//         type: "text",
+//         text: {
+//           body: "Hello , please send a message on this number."
+//         }
+//       },
+      
+//       {
+//         headers: {
+//           "Content-Type": "application/json",
+//           Authorization: `Bearer ${process.env.TOKEN}` // Use env variable for token
+//         }
+//       }
+//     );
+
+//     const sentMessage = {
+//       from: "me",
+//       to : "917489638090",
+//       timestamp: new Date().toISOString(),
+//       text: { body: text },
+//       type: "text",
+//       direction: "sent"
+//     };
+
+//     messages.push(sentMessage); // Store sent message
+//     console.log("Sent Message: ", sentMessage);
+//     res.status(200).json({ success: true, message: sentMessage });
+//   } catch (error) {
+//     console.error("Error sending message:", error.response?.data || error.message);
+//     res.status(500).json({ success: false, error: "Failed to send message" });
+//   }
+// });
 
 // Start server
 app.listen(port, () => {
