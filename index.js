@@ -44,6 +44,21 @@ app.get("/messages/:contact", async (req, res) => {
   }
 });
 
+// Verification endpoint
+app.get("/webhook", (req, res) => {
+  const verificationToken = process.env.TOKEN;
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verification_token"];
+  const challenge = req.query["hub.challenge"];
+
+  if (mode && token === verificationToken) {
+    console.log("Webhook verified!");
+    res.status(200).send(challenge);
+  } else {
+    res.sendStatus(403);
+  }
+});
+
 app.post("/webhook", async (req, res) => {
   const body = req.body;
   if (body.object === "whatsapp_business_account") {
