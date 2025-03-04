@@ -16,11 +16,26 @@ const { Server } = require("socket.io"); // Added for socket.io
 
 const server = http.createServer(app); // Create server for socket.io
 const io = new Server(server, {
-  cors: { origin: "*" }, // Allow all origins for testing
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"],
+  },
 });
 
+// const io = new Server(server, {
+//   cors: { origin: "*" }, // Allow all origins for testing
+// });
+
+// io.on("connection", (socket) => {
+//   console.log("A user connected:", socket.id);
+// });
+// WebSocket connection handling
 io.on("connection", (socket) => {
-  console.log("A user connected:", socket.id);
+  console.log("New client connected");
+
+  socket.on("disconnect", () => {
+    console.log("Client disconnected");
+  });
 });
 
 let messages = [];
@@ -72,6 +87,7 @@ app.post("/webhook", async (req, res) => {
         id: `${Date.now()}-${contact}`,
         contact,
         from: contact,
+        to: "me",
         timestamp: new Date(parseInt(message.timestamp) * 1000).toISOString(), // Converting timestamp
         text: message.text?.body || "", // Extracting text body
         type: message.type,
@@ -117,6 +133,7 @@ app.post("/new-send-message", async (req, res) => {
               messages: [
                 {
                   from: body.tempMessage.from,
+                  to: body.tempMessage.to, //need to send this info from frontend
                   id: body.tempMessage.id,
                   // timestamp: body.tempMessage.timestamp,
                   timestamp: Math.floor(Date.now() / 1000),
@@ -134,7 +151,7 @@ app.post("/new-send-message", async (req, res) => {
     ],
   };
 
-  console.log("inside new send message");
+  console.log("inside new send message, schema:", schema);
 
   if (schema.object === "whatsapp_business_account") {
     const entry = schema.entry?.[0];
@@ -143,28 +160,30 @@ app.post("/new-send-message", async (req, res) => {
     // const { text,contact } = req.body;
     // console.log("inside send-message");
     try {
-      const response = await axios.post(
-        "https://graph.facebook.com/v22.0/580509908477893/messages",
-        {
-          messaging_product: "whatsapp",
-          to: process.env.TO,
-          type: "text",
-          text: { body: message.text?.body },
-        },
+      // const response = await axios.post(
+      //   "https://graph.facebook.com/v22.0/580509908477893/messages",
+      //   {
+      //     messaging_product: "whatsapp",
+      //     to: message.to,
+      //     // to: process.env.TO,
+      //     type: "text",
+      //     text: { body: message.text?.body },
+      //   },
 
-        {
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${process.env.TOKEN}`, // Use env variable for token
-          },
-        }
-      );
+      //   {
+      //     headers: {
+      //       "Content-Type": "application/json",
+      //       Authorization: `Bearer ${process.env.TOKEN}`, // Use env variable for token
+      //     },
+      //   }
+      // );
       if (message) {
         const contact = message.from; // Extracting 'from' field for contact
         const sentMessage = {
           id: `${Date.now()}-${contact}`,
-          contact,
-          from: contact,
+          contact: message.to,
+          from: message.from,
+          to: message.to,
           timestamp: new Date(parseInt(message.timestamp) * 1000).toISOString(), // Converting timestamp
           text: message.text?.body || "", // Extracting text body
           type: message.type,
@@ -176,7 +195,7 @@ app.post("/new-send-message", async (req, res) => {
       }
     } catch (error) {
       console.error(
-        "Error sending message:",
+        "ERROR :: index.js :: /new-send-message : ",
         error.response?.data || error.message
       );
       res.status(500).json({ success: false, error: "Failed to send message" });
