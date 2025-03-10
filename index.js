@@ -3,208 +3,197 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const cors = require("cors");
 const axios = require("axios");
+const http = require("http");
+const { Server } = require("socket.io");
 
 const app = express();
 const port = process.env.PORT || 8080;
 
 app.use(bodyParser.json());
-app.use(cors());
+app.use(cors({
+  origin: ["http://localhost:5173"], 
+  methods: ["GET", "POST"]
+}));
 
-//for socket
-const http = require("http"); // Added for socket.io
-const { Server } = require("socket.io"); // Added for socket.io
-
-const server = http.createServer(app); // Create server for socket.io
+// Create HTTP Server
+const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "*",
-    methods: ["GET", "POST"],
-  },
+    origin: ["http://localhost:5173"],
+    methods: ["GET", "POST"]
+  }
 });
 
-// const io = new Server(server, {
-//   cors: { origin: "*" }, // Allow all origins for testing
-// });
-
-// io.on("connection", (socket) => {
-//   console.log("A user connected:", socket.id);
-// });
-// WebSocket connection handling
+// WebSocket Connection Handling
 io.on("connection", (socket) => {
-  console.log("New client connected");
+  console.log(`🔗 New client connected: ${socket.id}`);
+
+  // Welcome message
+  socket.emit("serverMessage", "Welcome! WebSocket is working.");
+
+  // Handle test event
+  socket.on("testEvent", (data) => {
+    console.log("Received testEvent:", data);
+    socket.emit("testResponse", "Message received!");
+  });
 
   socket.on("disconnect", () => {
-    console.log("Client disconnected");
+    console.log(`❌ Client disconnected: ${socket.id}`);
   });
 });
 
-let messages = [];
+// Import Cosmos DB client
+const container = require("./client");
 
-//Updated Endpoint to fetch messages by contact number
+// Fetch messages by contact number
 app.get("/messages/:contact", async (req, res) => {
   const contact = req.params.contact;
   try {
     const { resources: messages } = await container.items
       .query({
-        query:
-          "SELECT * FROM c WHERE c.contact = @contact ORDER BY c.timestamp ASC",
-        parameters: [{ name: "@contact", value: contact }],
+        query: "SELECT * FROM c WHERE c.contact = @contact ORDER BY c.timestamp ASC",
+        parameters: [{ name: "@contact", value: contact }]
       })
       .fetchAll();
 
     res.status(200).json(messages);
   } catch (error) {
-    console.error("Error fetching messages:", error.message);
+    console.error("❌ Error fetching messages:", error.message);
     res.status(500).json({ success: false, error: "Failed to fetch messages" });
   }
 });
 
-// Verification endpoint
+// Webhook Verification (Meta/Facebook)
 app.get("/webhook", (req, res) => {
-  const verificationToken = process.env.TOKEN;
   const mode = req.query["hub.mode"];
-  const token = req.query["hub.verification_token"];
+  const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
 
-  if (mode && token === verificationToken) {
-    console.log("Webhook verified!");
+  if (mode === "subscribe" && token === process.env.TOKEN) {
+    console.log("✅ Webhook Verified!");
     res.status(200).send(challenge);
   } else {
     res.sendStatus(403);
   }
 });
 
+// Handle Incoming WhatsApp Messages
 app.post("/webhook", async (req, res) => {
-  const body = req.body;
-  if (body.object === "whatsapp_business_account") {
-    const entry = body.entry?.[0];
-    const change = entry?.changes?.[0];
-    const message = change?.value?.messages?.[0];
-
-    if (message) {
-      const contact = message.from; // Extracting 'from' field for contact
-      const receivedMessage = {
-        id: `${Date.now()}-${contact}`,
-        contact,
-        from: contact,
-        to: "me",
-        timestamp: new Date(parseInt(message.timestamp) * 1000).toISOString(), // Converting timestamp
-        text: message.text?.body || "", // Extracting text body
-        type: message.type,
-        direction: "received",
-      };
-
-      await container.items.create(receivedMessage); // Store received message
-      console.log("Received Message Stored:", receivedMessage);
+  try {
+    const body = req.body;
+    if (body.object !== "whatsapp_business_account") {
+      return res.sendStatus(404);
     }
+
+    const message = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+    // if (message) {
+    //   const receivedMessage = {
+    //     id: `${Date.now()}-${message.from}`,
+    //     contact: message.from,
+    //     from: message.from,
+    //     to: "me",
+    //     timestamp: new Date(parseInt(message.timestamp) * 1000).toISOString(),
+    //     text: message.text?.body || "",
+    //     type: message.type,
+    //     direction: "received"
+    //   };
+
+    //   await container.items.create(receivedMessage);
+    //   console.log("📩 Received & Stored Message:", receivedMessage);
+
+    //   // Broadcast to all connected clients
+    //   io.emit("newMessage", receivedMessage);
+    // }
+    if (message) {
+      const receivedMessage = {
+        id: `${Date.now()}-${message.from}`,
+        contact: message.from,
+        from: message.from,
+        to: "me",
+        timestamp: new Date(parseInt(message.timestamp) * 1000).toISOString(),
+        text: message.text?.body || "",
+        type: message.type,
+        direction: "received"
+      };
+    
+      await container.items.create(receivedMessage);
+      console.log("📩 Received & Stored Message:", receivedMessage);
+    
+      // ✅ Emit event to notify all clients
+      io.emit("newMessage", receivedMessage);
+    }
+    
+
     res.sendStatus(200);
-  } else {
-    res.sendStatus(404);
+  } catch (error) {
+    console.error("❌ Error processing webhook:", error.message);
+    res.status(500).json({ success: false, error: "Webhook processing failed" });
   }
 });
 
+// Fetch All Messages
 app.get("/messages", async (req, res) => {
   try {
-    const { resources: messages } = await container.items
-      .query("SELECT * FROM c")
-      .fetchAll();
-    // console.log(messages);
+    const { resources: messages } = await container.items.query("SELECT * FROM c").fetchAll();
     res.json(messages);
   } catch (error) {
-    console.error("Error fetching messages:", error);
+    console.error("❌ Error fetching messages:", error.message);
     res.status(500).send("Internal Server Error");
   }
 });
 
-const container = require("./client");
-
+// Send WhatsApp Message
 app.post("/new-send-message", async (req, res) => {
-  console.log("req", req.body);
+  try {
+    const { tempMessage } = req.body;
+    console.log("📨 Sending Message:", tempMessage);
 
-  body = req.body;
-  const schema = {
-    object: "whatsapp_business_account",
-    entry: [
+    const messageData = {
+      messaging_product: "whatsapp",
+      to: tempMessage.to,
+      type: "text",
+      text: { body: tempMessage.text.body }
+    };
+
+    const response = await axios.post(
+      "https://graph.facebook.com/v22.0/580509908477893/messages",
+      messageData,
       {
-        id: body.tempMessage.id,
-        changes: [
-          {
-            value: {
-              messages: [
-                {
-                  from: body.tempMessage.from,
-                  to: body.tempMessage.to, //need to send this info from frontend
-                  id: body.tempMessage.id,
-                  // timestamp: body.tempMessage.timestamp,
-                  timestamp: Math.floor(Date.now() / 1000),
-                  text: {
-                    body: body.tempMessage.text.body,
-                  },
-                  type: "text",
-                },
-              ],
-            },
-            field: "messages",
-          },
-        ],
-      },
-    ],
-  };
-
-  console.log("inside new send message, schema:", schema);
-
-  if (schema.object === "whatsapp_business_account") {
-    const entry = schema.entry?.[0];
-    const change = entry?.changes?.[0];
-    const message = change?.value?.messages?.[0];
-    // const { text,contact } = req.body;
-    // console.log("inside send-message");
-    try {
-      // const response = await axios.post(
-      //   "https://graph.facebook.com/v22.0/580509908477893/messages",
-      //   {
-      //     messaging_product: "whatsapp",
-      //     to: message.to,
-      //     // to: process.env.TO,
-      //     type: "text",
-      //     text: { body: message.text?.body },
-      //   },
-
-      //   {
-      //     headers: {
-      //       "Content-Type": "application/json",
-      //       Authorization: `Bearer ${process.env.TOKEN}`, // Use env variable for token
-      //     },
-      //   }
-      // );
-      if (message) {
-        const contact = message.from; // Extracting 'from' field for contact
-        const sentMessage = {
-          id: `${Date.now()}-${contact}`,
-          contact: message.to,
-          from: message.from,
-          to: message.to,
-          timestamp: new Date(parseInt(message.timestamp) * 1000).toISOString(), // Converting timestamp
-          text: message.text?.body || "", // Extracting text body
-          type: message.type,
-          direction: "sent",
-        };
-        await container.items.create(sentMessage); // Store received messag
-        console.log("Sent Message: ", sentMessage);
-        res.status(200).json({ success: true, message: sentMessage });
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${process.env.TOKEN}`
+        }
       }
-    } catch (error) {
-      console.error(
-        "ERROR :: index.js :: /new-send-message : ",
-        error.response?.data || error.message
-      );
-      res.status(500).json({ success: false, error: "Failed to send message" });
-    }
-  } else {
-    res.sendStatus(400, "please check api route");
+    );
+
+    console.log("✅ Message Sent Successfully:", response.data);
+
+    // Store Sent Message
+    const sentMessage = {
+      id: `${Date.now()}-${tempMessage.to}`,
+      contact: tempMessage.to,
+      from: tempMessage.from,
+      to: tempMessage.to,
+      timestamp: new Date().toISOString(),
+      text: tempMessage.text.body,
+      type: "text",
+      direction: "sent"
+    };
+
+    await container.items.create(sentMessage);
+    console.log("💾 Stored Sent Message:", sentMessage);
+
+    // Broadcast sent message
+    io.emit("newMessage", sentMessage);
+
+    res.status(200).json({ success: true, message: sentMessage });
+  } catch (error) {
+    console.error("❌ Error sending message:", error.response?.data || error.message);
+    res.status(500).json({ success: false, error: "Failed to send message" });
   }
 });
 
+// Start Server
 server.listen(port, () => {
-  console.log(`Server is listening on port ${port}`);
+  console.log(`🚀 Server is running on port ${port}`);
 });
