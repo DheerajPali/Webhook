@@ -138,6 +138,7 @@ app.post("/webhook", async (req, res) => {
         preview_url: false,
         body: `${message.text?.body}` || "messageText",
       },
+      direction: "received",
     };
     console.log("flow body", requestBody);
 
@@ -220,6 +221,37 @@ app.post("/new-send-message", async (req, res) => {
 
     // Broadcast sent message
     io.emit("newMessage", sentMessage);
+
+    // ✅ Prepare JSON payload for Logic App trigger
+    const requestBody = {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      from: tempMessage.from,
+      type: "text",
+      to: tempMessage.to,
+      timestamp: new Date(parseInt(message.timestamp) * 1000).toISOString(),
+      text: {
+        preview_url: false,
+        body: tempMessage.text.body,
+      },
+      direction: "sent"
+    };
+
+    console.log("flow body", requestBody);
+
+    // ✅ Trigger Logic App with JSON payload
+    const flowResponse = await fetch(
+      "https://prod-48.northeurope.logic.azure.com:443/workflows/7383fef9d34043ce82867d154f7a12bf/triggers/manual/paths/invoke?api-version=2016-06-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=QiuGq4fcSUe36XaLGy3XT1M4DQPhts5bvztonAOZxAs",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestBody),
+      }
+    );
+
+    console.log("automate flow response", response.statusText);
 
     res.status(200).json({ success: true, message: sentMessage });
   } catch (error) {
