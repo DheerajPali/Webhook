@@ -10,18 +10,20 @@ const app = express();
 const port = process.env.PORT || 8080;
 
 app.use(bodyParser.json());
-app.use(cors({
-  origin: "*", 
-  methods: "*"
-}));
+app.use(
+  cors({
+    origin: "*",
+    methods: "*",
+  })
+);
 
 // Create HTTP Server
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "*", 
-  methods: "*"
-  }
+    origin: "*",
+    methods: "*",
+  },
 });
 
 // WebSocket Connection Handling
@@ -51,8 +53,9 @@ app.get("/messages/:contact", async (req, res) => {
   try {
     const { resources: messages } = await container.items
       .query({
-        query: "SELECT * FROM c WHERE c.contact = @contact ORDER BY c.timestamp ASC",
-        parameters: [{ name: "@contact", value: contact }]
+        query:
+          "SELECT * FROM c WHERE c.contact = @contact ORDER BY c.timestamp ASC",
+        parameters: [{ name: "@contact", value: contact }],
       })
       .fetchAll();
 
@@ -113,28 +116,58 @@ app.post("/webhook", async (req, res) => {
         timestamp: new Date(parseInt(message.timestamp) * 1000).toISOString(),
         text: message.text?.body || "",
         type: message.type,
-        direction: "received"
+        direction: "received",
       };
-    
+
       await container.items.create(receivedMessage);
       console.log("📩 Received & Stored Message:", receivedMessage);
-    
+
       // ✅ Emit event to notify all clients
       io.emit("newMessage", receivedMessage);
     }
-    
+
+    // ✅ Prepare JSON payload for Logic App trigger
+    const requestBody = {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      from: `${message.from}` || "from",
+      type: `${message.type}` || "text",
+      text: {
+        preview_url: false,
+        body: `${message.text?.body}` || "messageText" ,
+      },
+    };
+    console.log("flow body", requestBody);
+
+    // ✅ Trigger Logic App with JSON payload
+    const response = await fetch(
+      "https://prod-48.northeurope.logic.azure.com:443/workflows/7383fef9d34043ce82867d154f7a12bf/triggers/manual/paths/invoke?api-version=2016-06-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=QiuGq4fcSUe36XaLGy3XT1M4DQPhts5bvztonAOZxAs",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestBody),
+      }
+    );
+
+    console.log("automate flow response", response.statusText);
 
     res.sendStatus(200);
   } catch (error) {
     console.error("❌ Error processing webhook:", error.message);
-    res.status(500).json({ success: false, error: "Webhook processing failed" });
+    res
+      .status(500)
+      .json({ success: false, error: "Webhook processing failed" });
   }
 });
 
 // Fetch All Messages
 app.get("/messages", async (req, res) => {
   try {
-    const { resources: messages } = await container.items.query("SELECT * FROM c").fetchAll();
+    const { resources: messages } = await container.items
+      .query("SELECT * FROM c")
+      .fetchAll();
     res.json(messages);
   } catch (error) {
     console.error("❌ Error fetching messages:", error.message);
@@ -152,7 +185,7 @@ app.post("/new-send-message", async (req, res) => {
       messaging_product: "whatsapp",
       to: tempMessage.to,
       type: "text",
-      text: { body: tempMessage.text.body }
+      text: { body: tempMessage.text.body },
     };
 
     const response = await axios.post(
@@ -161,8 +194,8 @@ app.post("/new-send-message", async (req, res) => {
       {
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.TOKEN}`
-        }
+          Authorization: `Bearer ${process.env.TOKEN}`,
+        },
       }
     );
 
@@ -177,7 +210,7 @@ app.post("/new-send-message", async (req, res) => {
       timestamp: new Date().toISOString(),
       text: tempMessage.text.body,
       type: "text",
-      direction: "sent"
+      direction: "sent",
     };
 
     await container.items.create(sentMessage);
@@ -188,7 +221,10 @@ app.post("/new-send-message", async (req, res) => {
 
     res.status(200).json({ success: true, message: sentMessage });
   } catch (error) {
-    console.error("❌ Error sending message:", error.response?.data || error.message);
+    console.error(
+      "❌ Error sending message:",
+      error.response?.data || error.message
+    );
     res.status(500).json({ success: false, error: "Failed to send message" });
   }
 });
