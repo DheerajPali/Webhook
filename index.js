@@ -132,9 +132,11 @@ app.post("/webhook", async (req, res) => {
       recipient_type: "individual",
       from: `${message.from}` || "from",
       type: `${message.type}` || "text",
+      to: "me",
+      timestamp: new Date(parseInt(message.timestamp) * 1000).toISOString(),
       text: {
         preview_url: false,
-        body: `${message.text?.body}` || "messageText" ,
+        body: `${message.text?.body}` || "messageText",
       },
     };
     console.log("flow body", requestBody);
